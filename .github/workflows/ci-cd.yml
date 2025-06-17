@@ -146,6 +146,12 @@ jobs:
 
     - name: Test Production Service URL
       run: |
-        minikube service list
-        # Test the static service name
-        minikube service mcp-server --url
+        # Get the URL without starting the blocking tunnel
+        SERVICE_URL=$(minikube service mcp-server --url)
+        
+        # Wait a few seconds for the service to be ready
+        echo "Waiting for service to become available at ${SERVICE_URL}..."
+        sleep 10
+        
+        # Use curl to perform a non-blocking health check
+        curl --fail --silent --show-error --max-time 15 "${SERVICE_URL}"
