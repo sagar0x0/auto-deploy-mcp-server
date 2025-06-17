@@ -80,6 +80,9 @@ jobs:
       # Makes the PR number easily accessible as an environment variable
       run: echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
 
+    - name: Start Minikube
+      uses: medyagh/setup-minikube@latest
+
     - name: Build Docker Image in Minikube
       run: |
         eval $(minikube docker-env)
@@ -126,6 +129,9 @@ jobs:
     - name: Set PR Number as Env Var
       # Makes the PR number easily accessible as an environment variable
       run: echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
+
+    - name: Start Minikube
+      uses: medyagh/setup-minikube@latest
 
     - name: Build Docker Image in Minikube
       run: |
