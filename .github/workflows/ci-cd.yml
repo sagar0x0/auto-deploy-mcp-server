@@ -146,12 +146,18 @@ jobs:
 
     - name: Test Production Service URL
       run: |
-        # Get the URL without starting the blocking tunnel
-        SERVICE_URL=$(minikube service mcp-server --url)
+        # Get the IP address of the Minikube cluster
+        MINIKUBE_IP=$(minikube ip)
         
-        # Wait a few seconds for the service to be ready
+        # Get the NodePort assigned to the service
+        NODE_PORT=$(kubectl get service mcp-server -o jsonpath='{.spec.ports[0].nodePort}')
+        
+        # Construct the full URL
+        SERVICE_URL="http://${MINIKUBE_IP}:${NODE_PORT}"
+        
         echo "Waiting for service to become available at ${SERVICE_URL}..."
-        sleep 10
+        sleep 15 # Wait for the service endpoint to be fully ready
         
         # Use curl to perform a non-blocking health check
-        curl --fail --silent --show-error --max-time 15 "${SERVICE_URL}"
+        echo "Testing service endpoint..."
+        curl --fail --silent --show-error --max-time 20 "${SERVICE_URL}"
