@@ -126,35 +126,26 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set PR Number as Env Var
-      # Makes the PR number easily accessible as an environment variable
-      run: echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
 
     - name: Start Minikube
       uses: medyagh/setup-minikube@latest
 
-    - name: Build Docker Image in Minikube
+    - name: Build Production Docker Image
       run: |
         eval $(minikube docker-env)
-        # Build the unique image using the PR number
-        docker build -t mcp-server:pr-${PR_NUMBER} .
+        # Build the final image with the ':latest' tag
+        docker build -t mcp-server:latest .
 
-    - name: Deploy Unique Staging Resources
+    - name: Deploy to Production
       run: |
-        # Create a temporary, unique manifest file for this PR.
-        # 1. Replace the generic app name to create unique service/deployment names.
-        # 2. Replace the generic image tag with the unique one we just built.
-        sed -e "s/name: mcp-server/name: mcp-server-pr-${PR_NUMBER}/g" \
-            -e "s/image: mcp-server:latest/image: mcp-server:pr-${PR_NUMBER}/g" \
-            k8s/deployment.yaml > k8s/staging-deployment.yaml
+        # Apply the original, unmodified Kubernetes manifest
+        kubectl apply -f k8s/deployment.yaml
 
-        # Apply the unique manifest to the cluster
-        kubectl apply -f k8s/staging-deployment.yaml
+        # Check the rollout status of the static deployment
+        kubectl rollout status deployment/mcp-server
 
-        # Check the rollout status of the new, unique deployment
-        kubectl rollout status deployment/mcp-server-pr-${PR_NUMBER}
-
-    - name: Test Service URL
+    - name: Test Production Service URL
       run: |
         minikube service list
+        # Test the static service name
         minikube service mcp-server --url
