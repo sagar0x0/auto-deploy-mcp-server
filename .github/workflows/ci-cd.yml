@@ -1,0 +1,160 @@
+name: CI/CD for MCP Server
+
+on: 
+  push:
+    branches: [main]
+
+  pull_request:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  build-and-test:
+    name: Build, Test, and AI Scan
+    runs-on: ubuntu-latest
+
+    # set the working dir for all steps in this job
+    defaults:
+      run:
+        working-directory: ./app/mcp-server   # can be modified ...
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+      
+    - name: Install dependency
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+      
+    - name: Run Unit Tests
+      run: |
+        if [ -d tests ]; then
+          python -m unittest discover -s tests
+        else
+          echo "No tests directory found, skipping tests."
+        fi
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: python
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+
+
+  # this runs on every pull request to validate the deployment process
+  deploy-to-staging:
+    name: Deploy to Staging
+    needs: build-and-test
+    runs-on: self-hosted
+    # "if" condition so this job runs only on pull req 
+    if: github.event_name == 'pull_request'
+    
+    defaults:
+      run:
+        working-directory: ./app/mcp-server
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set PR Number as Env Var
+      # Makes the PR number easily accessible as an environment variable
+      run: echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
+
+    - name: Start Minikube
+      uses: medyagh/setup-minikube@latest
+
+    - name: Build Docker Image in Minikube
+      run: |
+        eval $(minikube docker-env)
+        # Build the unique image using the PR number
+        docker build -t mcp-server:pr-${PR_NUMBER} .
+
+    - name: Deploy Unique Staging Resources
+      run: |
+        # Create a temporary, unique manifest file for this PR.
+        # 1. Replace the generic app name to create unique service/deployment names.
+        # 2. Replace the generic image tag with the unique one we just built.
+        sed -e "s/name: mcp-server/name: mcp-server-pr-${PR_NUMBER}/g" \
+            -e "s/image: mcp-server:latest/image: mcp-server:pr-${PR_NUMBER}/g" \
+            k8s/deployment.yaml > k8s/staging-deployment.yaml
+
+        # Apply the unique manifest to the cluster
+        kubectl apply -f k8s/staging-deployment.yaml
+
+        # Check the rollout status of the new, unique deployment
+        kubectl rollout status deployment/mcp-server-pr-${PR_NUMBER}
+
+
+
+
+
+
+
+  deploy-to-production:
+    name: Deploy to Minikube
+    needs: build-and-test
+    runs-on: self-hosted
+
+    # set the working dir for all steps in this job
+    defaults:
+      run:
+        working-directory: ./app/mcp-server   # can be modified 
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set PR Number as Env Var
+      # Makes the PR number easily accessible as an environment variable
+      run: echo "PR_NUMBER=${{ github.event.number }}" >> $GITHUB_ENV
+
+    - name: Start Minikube
+      uses: medyagh/setup-minikube@latest
+
+    - name: Build Docker Image in Minikube
+      run: |
+        eval $(minikube docker-env)
+        # Build the unique image using the PR number
+        docker build -t mcp-server:pr-${PR_NUMBER} .
+
+    - name: Deploy Unique Staging Resources
+      run: |
+        # Create a temporary, unique manifest file for this PR.
+        # 1. Replace the generic app name to create unique service/deployment names.
+        # 2. Replace the generic image tag with the unique one we just built.
+        sed -e "s/name: mcp-server/name: mcp-server-pr-${PR_NUMBER}/g" \
+            -e "s/image: mcp-server:latest/image: mcp-server:pr-${PR_NUMBER}/g" \
+            k8s/deployment.yaml > k8s/staging-deployment.yaml
+
+        # Apply the unique manifest to the cluster
+        kubectl apply -f k8s/staging-deployment.yaml
+
+        # Check the rollout status of the new, unique deployment
+        kubectl rollout status deployment/mcp-server-pr-${PR_NUMBER}
+
+    - name: Test Service URL
+      run: |
+        minikube service list
+        minikube service mcp-server --url
